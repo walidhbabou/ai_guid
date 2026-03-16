@@ -1,5 +1,5 @@
-fastapi==0.115.0
-uvicorn[standard]==0.35.0
-pydantic==2.9.0
-pillow==11.1.0
-python-dotenv==1.0.1
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.2
+pillow==10.1.0
+python-dotenv==1.0.0
