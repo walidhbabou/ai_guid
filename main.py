@@ -4,20 +4,21 @@ import argparse
 import json
 import os
 import re
+import sys
+import traceback
+import urllib.parse
 from typing import Any
 from urllib import error, request
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", "AIzaSyAB0W_hpGtU7Wkdkyxd85r5jvvA6JCGhXY"))
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", "AIzaSyC7l4q182UQFEEABq7sB9baoZPLQv9-o-Q"))
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 def _fetch_wikipedia_image(place_name: str, city: str = "", country: str = "") -> str | None:
     """Récupère une vraie image depuis Wikipedia pour un lieu."""
-    import urllib.parse
-    
     # Essayer plusieurs variantes de recherche
     search_terms = [
         place_name,
@@ -99,7 +100,6 @@ def _gemini_url(model: str, api_key: str) -> str:
 
 
 def _extract_text_from_gemini(body: dict[str, Any]) -> str:
-    import sys
     candidates = body.get("candidates", [])
     if not candidates:
         raise ValueError("Gemini n'a pas retourne de contenu (candidates vide)")
@@ -114,7 +114,6 @@ def _extract_text_from_gemini(body: dict[str, Any]) -> str:
 
 
 def _extract_json_array(text: str) -> list[dict[str, Any]]:
-    import sys
     cleaned = text.strip()
     
     # Strip markdown code fences
@@ -163,7 +162,6 @@ def _extract_json_array(text: str) -> list[dict[str, Any]]:
 
 def _brute_force_json_extract(text: str) -> list[dict[str, Any]]:
     """Extrait les objets JSON meme s'ils sont incomplets."""
-    import sys
     result = []
     
     # Strategie 1: chercher les {...} complets
@@ -258,10 +256,11 @@ def _normalize_places(places: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def ask_gemini(query: str, system_prompt: str | None = None) -> list[dict[str, Any]]:
     if not GEMINI_API_KEY:
-        import sys
-        print("Erreur: GEMINI_API_KEY non definie. Definis-la avant de lancer le script:", file=sys.stderr)
-        print("Exemple PowerShell: $env:GEMINI_API_KEY='TA_CLE'", file=sys.stderr)
+        print("❌ ERREUR: GEMINI_API_KEY non définie!", file=sys.stderr)
         return []
+
+    print(f"[DEBUG] Query: {query}", file=sys.stderr)
+    print(f"[DEBUG] API Key: {GEMINI_API_KEY[:20]}...", file=sys.stderr)
 
     system_text = system_prompt or (
         "Return ONLY a JSON array of places. No markdown, no text outside JSON. "
@@ -298,24 +297,27 @@ def ask_gemini(query: str, system_prompt: str | None = None) -> list[dict[str, A
     )
 
     try:
-        with request.urlopen(req, timeout=60) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        import sys
-        print(f"[DEBUG] Body Gemini: {json.dumps(body, indent=2)[:500]}", file=sys.stderr)
-        raw_text = _extract_text_from_gemini(body)
-        raw_places = _extract_json_array(raw_text)
-        result = _normalize_places(raw_places)
-        print(f"[DEBUG] Places normalisees: {len(result)}", file=sys.stderr)
-        return result
-    except (error.HTTPError, error.URLError, json.JSONDecodeError, ValueError) as exc:
-        import sys
-        print(f"Erreur lors de la requete Gemini: {exc.__class__.__name__}: {exc}", file=sys.stderr)
+        with request.urlopen(req, timeout=30) as response:
+            body = response.read().decode("utf-8")
+        print(f"[DEBUG] Response reçue: {len(body)} bytes", file=sys.stderr)
+        
+        response_json = json.loads(body)
+        text = _extract_text_from_gemini(response_json)
+        places = _extract_json_array(text)
+        normalized = _normalize_places(places)
+        
+        print(f"[DEBUG] Places retournées: {len(normalized)}", file=sys.stderr)
+        return normalized
+        
+    except (error.HTTPError, error.URLError) as exc:
+        print(f"❌ Erreur réseau: {exc}", file=sys.stderr)
+        return []
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(f"❌ Erreur traitement JSON: {exc}", file=sys.stderr)
         return []
     except Exception as exc:
-        import sys
-        import traceback
-        print(f"Erreur inattendue: {exc}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
+        print(f"❌ Erreur inconnue: {exc}", file=sys.stderr)
+        traceback.print_exc()
         return []
 
 

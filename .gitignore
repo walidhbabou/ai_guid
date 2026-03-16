@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.local
+.idea/
+*.egg-info/
+dist/
+build/
+.DS_Store
+*.log
+.ipynb_checkpoints/
+ai-place-service/
